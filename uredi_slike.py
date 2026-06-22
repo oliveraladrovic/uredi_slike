@@ -1,15 +1,64 @@
 import json
 from json import JSONDecodeError
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
+INVALID_FILENAME_CHARS = '<>:"/\\|?*'
+
+RESERVED_WINDOWS_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
 
 
-def uredi():
-    print("Uređujem")
+def uredi_slike(product_dir, web_name):
+    print(product_dir, web_name)
+
+
+def validate_file_name(name):
+    if not name:
+        return False, "Unesite web naziv artikla."
+
+    if any(char in name for char in INVALID_FILENAME_CHARS):
+        return (
+            False,
+            'Web naziv sadrži znak koji se ne smije koristiti u nazivu datoteke:\n< > : " / \\ | ? *',
+        )
+
+    if name.endswith(".") or name.endswith(" "):
+        return False, "Web naziv ne smije završavati točkom ili razmakom."
+
+    if name.upper() in RESERVED_WINDOWS_NAMES:
+        return (
+            False,
+            "Taj naziv je rezerviran u Windowsima i ne može se koristiti kao naziv datoteke.",
+        )
+
+    return True, ""
 
 
 def validate_work_dir(root):
@@ -71,29 +120,95 @@ def validate_work_dir(root):
 
 
 def start_gui():
+    product_dir = None
+    sku_ok = False
     root = tk.Tk()
     root.title("Uredi slike")
+    small_font = tkfont.nametofont("TkDefaultFont").copy()
+    small_font.configure(size=8)
+    big_font = tkfont.nametofont("TkDefaultFont").copy()
+    big_font.configure(size=14)
 
     # SKU
     lbl_sku = tk.Label(root, text="SKU:")
-    lbl_sku.grid(column=0, row=0, sticky="w", padx=5, pady=5)
+    lbl_sku.grid(column=0, row=0, sticky="w", padx=5, pady=(5, 0))
 
-    txt_sku = tk.Entry(root, width=10)
-    txt_sku.grid(column=1, row=0, sticky="w", padx=5, pady=5)
+    txt_sku = tk.Entry(root, state=tk.DISABLED)
+    txt_sku.grid(column=1, row=0, sticky="w", padx=5, pady=(5, 0))
     txt_sku.focus_set()
+
+    # Checkmark
+    lbl_checkmark = tk.Label(root, font=big_font, text="", fg="green")
+    lbl_checkmark.grid(column=2, row=0, sticky="e", padx=5, pady=5)
+
+    # Product folder
+    lbl_product_folder = tk.Label(root, font=small_font, text="")
+    lbl_product_folder.grid(column=1, columnspan=2, row=1, sticky="w")
+
+    # Provjera product folder-a
+    def validate_sku(event=None):
+        nonlocal sku_ok
+        nonlocal product_dir
+        sku_ok = False
+        product_dir = None
+        lbl_checkmark.config(text="")
+        lbl_product_folder.config(text="")
+
+        sku = txt_sku.get().strip()
+
+        if not sku or not work_dir:
+            return
+
+        expected_dir = work_dir / sku / "src"
+
+        if not expected_dir.exists() or not expected_dir.is_dir():
+            return
+
+        product_dir = work_dir / sku
+        lbl_checkmark.config(text=chr(0x2705))
+        lbl_product_folder.config(text=str(product_dir))
+        sku_ok = True
+        btn_uredi.config(state=tk.NORMAL)
+
+    txt_sku.bind("<FocusOut>", validate_sku)
 
     # Web naziv
     lbl_name = tk.Label(root, text="WEB naziv:")
-    lbl_name.grid(column=0, row=1, sticky="w", padx=5, pady=5)
+    lbl_name.grid(column=0, row=2, sticky="w", padx=5, pady=5)
 
-    txt_name = tk.Entry(root, width=100)
-    txt_name.grid(column=1, row=1, sticky="w", padx=5, pady=5)
+    txt_name = tk.Entry(root, width=100, state=tk.DISABLED)
+    txt_name.grid(column=1, columnspan=2, row=2, sticky="w", padx=5, pady=5)
 
     # Button Uredi
+    def uredi():
+        validate_sku()
+        if not sku_ok:
+            messagebox.showerror(
+                "Greška",
+                f"Ne mogu pronaći mapu artikla {txt_sku.get()}",
+                parent=root,
+            )
+            txt_sku.focus_set()
+            return
+
+        web_name = txt_name.get().strip()
+        is_valid_name, error_message = validate_file_name(web_name)
+
+        if not is_valid_name:
+            messagebox.showerror(
+                "Greška",
+                error_message,
+                parent=root,
+            )
+            txt_name.focus_set()
+            return
+
+        uredi_slike(product_dir, web_name)
+
     btn_uredi = tk.Button(
         root, text="Uredi", width=10, command=uredi, state=tk.DISABLED
     )
-    btn_uredi.grid(column=1, row=2, sticky="e", padx=5, pady=5)
+    btn_uredi.grid(column=2, row=3, sticky="e", padx=5, pady=5)
 
     # open_settings dialog
     def open_settings():
@@ -170,6 +285,12 @@ def start_gui():
                 return
 
             work_dir = new_work_dir
+            lbl_checkmark.config(text="")
+            lbl_product_folder.config(text="")
+            btn_uredi.config(state=tk.NORMAL)
+            txt_sku.config(state=tk.NORMAL)
+            txt_name.config(state=tk.NORMAL)
+            txt_sku.focus_set()
             popup.destroy()
 
         btn_save = tk.Button(
@@ -207,6 +328,10 @@ def start_gui():
     # config.json provjere
     root.update()
     work_dir = validate_work_dir(root)
+    if work_dir:
+        txt_sku.config(state=tk.NORMAL)
+        txt_name.config(state=tk.NORMAL)
+        btn_uredi.config(state=tk.NORMAL)
 
     root.mainloop()
 
