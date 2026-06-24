@@ -4,6 +4,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
 from pathlib import Path
+from PIL import Image
 
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -35,11 +36,103 @@ RESERVED_WINDOWS_NAMES = {
 }
 
 
-def uredi_slike(product_dir, web_name):
-    print(product_dir, web_name)
+def build_output_path(product_dir: Path, web_name: str, number: int) -> Path:
+    if number == 0:
+        return product_dir / f"{web_name}.webp"
+
+    return product_dir / f"{web_name}_{number}.webp"
 
 
-def validate_file_name(name):
+def get_next_image_number(product_dir: Path, web_name: str) -> int:
+    numbers = set()
+
+    for file in product_dir.glob("*.webp"):
+        if file.name == f"{web_name}.webp":
+            numbers.add(0)
+            continue
+
+        prefix = f"{web_name}_"
+
+        if file.stem.startswith(prefix):
+            number_part = file.stem.removeprefix(prefix)
+
+            if number_part.isdigit():
+                numbers.add(int(number_part))
+
+    if not numbers:
+        return 0
+
+    return max(numbers) + 1
+
+
+def remove_alpha_channel(img: Image.Image) -> Image.Image:
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        img_rgba = img.convert("RGBA")
+
+        white_background = Image.new("RGBA", img_rgba.size, (255, 255, 255, 255))
+        white_background.paste(img_rgba, mask=img_rgba.getchannel("A"))
+
+        return white_background.convert("RGB")
+
+    return img.convert("RGB")
+
+
+def resize_image(img: Image.Image, max_size: int = 780) -> Image.Image:
+    width, height = img.size
+
+    if width <= max_size and height <= max_size:
+        return img
+
+    if width >= height:
+        new_width = max_size
+        new_height = round(height * max_size / width)
+    else:
+        new_height = max_size
+        new_width = round(width * max_size / height)
+
+    return img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+
+def add_white_canvas(
+    img: Image.Image,
+    canvas_width: int = 800,
+    canvas_height: int = 800,
+) -> Image.Image:
+    canvas = Image.new("RGB", (canvas_width, canvas_height), "white")
+
+    x = (canvas_width - img.width) // 2
+    y = (canvas_height - img.height) // 2
+
+    canvas.paste(img, (x, y))
+    return canvas
+
+
+def uredi_slike(product_dir: Path, web_name: str) -> None:
+    src_dir = product_dir / "src"
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+    files = [
+        f
+        for f in src_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+
+    if not files:
+        raise ValueError(f"Nema slika za obradu u mapi:\n{src_dir}")
+
+    next_number = get_next_image_number(product_dir, web_name)
+
+    for file in files:
+        with Image.open(file) as img:
+            img = remove_alpha_channel(img)
+            img = resize_image(img, 780)
+            img = add_white_canvas(img, 800, 800)
+
+            file_path = build_output_path(product_dir, web_name, next_number)
+            img.save(file_path, format="WEBP")
+            next_number += 1
+
+
+def validate_file_name(name: str) -> tuple:
     if not name:
         return False, "Unesite web naziv artikla."
 
@@ -61,7 +154,7 @@ def validate_file_name(name):
     return True, ""
 
 
-def validate_work_dir(root):
+def validate_work_dir(root: tk.Tk) -> Path | None:
     if not CONFIG_FILE.exists():
         messagebox.showerror(
             "Greška",
@@ -119,7 +212,7 @@ def validate_work_dir(root):
     return work_dir
 
 
-def start_gui():
+def start_gui() -> None:
     product_dir = None
     sku_ok = False
     root = tk.Tk()
@@ -146,7 +239,7 @@ def start_gui():
     lbl_product_folder.grid(column=1, columnspan=2, row=1, sticky="w")
 
     # Provjera product folder-a
-    def validate_sku(event=None):
+    def validate_sku(event=None) -> None:
         nonlocal sku_ok
         nonlocal product_dir
         sku_ok = False
@@ -180,7 +273,7 @@ def start_gui():
     txt_name.grid(column=1, columnspan=2, row=2, sticky="w", padx=5, pady=5)
 
     # Button Uredi
-    def uredi():
+    def uredi() -> None:
         validate_sku()
         if not sku_ok:
             messagebox.showerror(
@@ -203,12 +296,38 @@ def start_gui():
             txt_name.focus_set()
             return
 
-        uredi_slike(product_dir, web_name)
+        if product_dir:
+            try:
+                uredi_slike(product_dir, web_name)
+            except ValueError as error:
+                messagebox.showerror(
+                    "Greška",
+                    str(error),
+                    parent=root,
+                )
+                return
+
+            messagebox.showinfo(
+                "Gotovo",
+                "Slike su uspješno obrađene",
+                parent=root,
+            )
+            txt_sku.delete(0, tk.END)
+            txt_name.delete(0, tk.END)
+            lbl_checkmark.config(text="")
+            lbl_product_folder.config(text="")
+            txt_sku.focus_set()
 
     btn_uredi = tk.Button(
         root, text="Uredi", width=10, command=uredi, state=tk.DISABLED
     )
     btn_uredi.grid(column=2, row=3, sticky="e", padx=5, pady=5)
+
+    def on_enter(event=None):
+        if btn_uredi["state"] == tk.NORMAL:
+            uredi()
+
+    root.bind("<Return>", on_enter)
 
     # open_settings dialog
     def open_settings():
@@ -224,7 +343,7 @@ def start_gui():
         txt_work_dir.grid(column=0, row=1, columnspan=2, sticky="w", padx=10, pady=5)
 
         # Button Odaberi...
-        def choose_folder():
+        def choose_folder() -> None:
             folder = filedialog.askdirectory(
                 title="Odaberi osnovnu mapu",
                 parent=popup,
@@ -243,7 +362,7 @@ def start_gui():
         btn_choose.grid(column=2, row=1, sticky="w", padx=(0, 10), pady=5)
 
         # Button Spremi
-        def save():
+        def save() -> None:
             nonlocal work_dir
             work_dir_string = txt_work_dir.get().strip()
             if not work_dir_string:

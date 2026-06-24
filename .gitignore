@@ -1,3 +1,12 @@
-.venv
+.venv/
+__pycache__/
+*.pyc
+
 config.json
 primjer_2026
+
+build/
+dist/
+*.spec
+
+TODO.md
