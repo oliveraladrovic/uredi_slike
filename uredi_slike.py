@@ -4,7 +4,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageChops
 
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -77,6 +77,25 @@ def remove_alpha_channel(img: Image.Image) -> Image.Image:
     return img.convert("RGB")
 
 
+def trim_white_border(img: Image.Image, tolerance: int = 10) -> Image.Image:
+    if img.mode != "RGB":
+        img.convert("RGB")
+
+    white_background = Image.new("RGB", img.size, "white")
+    diff = ImageChops.difference(img, white_background)
+
+    gray_diff = diff.convert("L")
+    threshold_table = [255 if i > tolerance else 0 for i in range(256)]
+    mask = gray_diff.point(threshold_table)
+
+    bbox = mask.getbbox()
+
+    if bbox is None:
+        return img
+
+    return img.crop(bbox)
+
+
 def resize_image(img: Image.Image, max_size: int = 780) -> Image.Image:
     width, height = img.size
 
@@ -124,6 +143,7 @@ def uredi_slike(product_dir: Path, web_name: str) -> None:
     for file in files:
         with Image.open(file) as img:
             img = remove_alpha_channel(img)
+            img = trim_white_border(img)
             img = resize_image(img, 780)
             img = add_white_canvas(img, 800, 800)
 
