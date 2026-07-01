@@ -109,7 +109,7 @@ def add_white_canvas(
 
 def uredi_slike(product_dir: Path, web_name: str) -> None:
     src_dir = product_dir / "src"
-    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
     files = [
         f
         for f in src_dir.iterdir()
